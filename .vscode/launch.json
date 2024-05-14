@@ -12,9 +12,9 @@
         },
         {
             "type": "java",
-            "name": "Process_Pixels",
+            "name": "Wavelet_Haar",
             "request": "launch",
-            "mainClass": "com.mycompany.imagej.Process_Pixels",
+            "mainClass": "com.mycompany.imagej.Wavelet_Haar",
             "projectName": "Process_Pixels"
         }
     ]
