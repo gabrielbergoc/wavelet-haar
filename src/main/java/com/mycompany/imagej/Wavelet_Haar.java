@@ -26,7 +26,7 @@ public class Wavelet_Haar implements PlugInFilter {
 	protected ImagePlus image;
 
 	// plugin parameters
-	public double value;
+	public int value;
 	public String name;
 
 	@Override
@@ -43,53 +43,69 @@ public class Wavelet_Haar implements PlugInFilter {
 	@Override
 	public void run(ImageProcessor ip) {
 		if (showDialog()) {
-			ImageAccess out = process(new ImageAccess(ip));
-			out.show("Result");;
+			ImageAccess out = waveletHaar(new ImageAccess(ip), value);
+			out.show("Result (Haar Wavelet Transform, " + value + " levels)");
 		}
 	}
 
 	private boolean showDialog() {
-		GenericDialog gd = new GenericDialog("Wavelet Haar");
+		GenericDialog gd = new GenericDialog("Haar Wavelet");
 
-		gd.addNumericField("levels", 1, 0);
+		gd.addNumericField("Levels", 1, 0);
 
 		gd.showDialog();
 		if (gd.wasCanceled())
 			return false;
 
-		value = gd.getNextNumber();
+		value = (int)gd.getNextNumber();
 
 		return true;
-	}
-
-	static public ImageAccess process(ImageAccess input) {
-		return waveletHaar(input, 1);
 	}
 
 	static public ImageAccess waveletHaar(ImageAccess input, int max) {
 		int nx = input.getWidth();
 		int ny = input.getHeight();
 		double[] lowHigh;
-		ImageAccess middle = new ImageAccess(nx, ny);
-		ImageAccess out = new ImageAccess(nx, ny);
+		ImageAccess aux1 = new ImageAccess(nx, ny);
+		ImageAccess aux2 = new ImageAccess(nx, ny);
+		ImageAccess out = input.duplicate();
+		ImageAccess temp;
 
-		// Low Pass | High Pass
-		for (int x = 0; x < nx - 1; x += 2) {
-			for (int y = 0; y < ny; y++) {
-				lowHigh = getLowHigh(input, x, y, 1, 0);
-				middle.putPixel(x / 2, y, lowHigh[0]);
-				middle.putPixel((x + nx) / 2, y, lowHigh[1]);
-			}
-		}
+		for (int i = 0; i < max; i++) {
+			int div = 1 << i;
 
-		// LL HL
-		// LH HH
-		for (int x = 0; x < nx; x++) {
-			for (int y = 0; y < ny - 1; y +=2) {
-				lowHigh = getLowHigh(middle, x, y, 0, 1);
-				out.putPixel(x, y / 2, lowHigh[0]);
-				out.putPixel(x, (y + ny) / 2, lowHigh[1]);
+			// vertical split
+			for (int y = 0; y < (ny / div); y++) {
+			for (int x = 0; x < (nx / div); x += 2) {
+					lowHigh = getLowHigh(out, x, y, 1, 0);
+					aux1.putPixel(x / 2, y, lowHigh[0]);
+					aux1.putPixel(x / 2 + nx / (div << 1), y, lowHigh[1]);
+				}
 			}
+
+			// horizontal split
+			for (int x = 0; x < (nx / div); x++) {
+				for (int y = 0; y < (ny / div); y += 2) {
+					lowHigh = getLowHigh(aux1, x, y, 0, 1);
+					aux2.putPixel(x, y / 2, lowHigh[0]);
+					aux2.putPixel(x, y / 2 + ny / (div << 1), lowHigh[1]);
+				}
+			}
+
+			// copy higher bands
+			for (int x = 0; x < nx; x++) {
+				for (int y = 0; y < ny; y++) {
+					if (x < (nx / div) && y < (ny / div)) continue;
+
+					aux2.putPixel(x, y, out.getPixel(x, y));
+				}
+			}
+
+			// rotate references
+			temp = out;
+			out = aux2;
+			aux2 = aux1;
+			aux1 = temp;
 		}
 
 		return out;
@@ -109,7 +125,7 @@ public class Wavelet_Haar implements PlugInFilter {
 
 	public void showAbout() {
 		IJ.showMessage("WaveletHaar",
-				"a plugin to compute the Wavelet Haar descriptors of an image");
+				"a plugin to compute the Haar Wavelet descriptors of an image");
 	}
 
 	/**
