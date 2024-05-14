@@ -62,37 +62,49 @@ public class Wavelet_Haar implements PlugInFilter {
 		return true;
 	}
 
-	public ImageAccess process(ImageAccess input) {
+	static public ImageAccess process(ImageAccess input) {
+		return waveletHaar(input, 1);
+	}
+
+	static public ImageAccess waveletHaar(ImageAccess input, int max) {
 		int nx = input.getWidth();
 		int ny = input.getHeight();
+		double[] lowHigh;
 		ImageAccess middle = new ImageAccess(nx, ny);
 		ImageAccess out = new ImageAccess(nx, ny);
-		double diff, mean, curr, next;
 
 		// Low Pass | High Pass
-		for (int x = 0; x + 1 < nx; x += 2)
+		for (int x = 0; x < nx - 1; x += 2) {
 			for (int y = 0; y < ny; y++) {
-				curr = input.getPixel(x, y);
-				next = input.getPixel(x + 1, y);
-				mean = (curr + next) / 2;
-				diff = (curr - next) / 2;
-				middle.putPixel(x / 2, y, mean);
-				middle.putPixel(x / 2 + nx / 2, y, diff);
+				lowHigh = getLowHigh(input, x, y, 1, 0);
+				middle.putPixel(x / 2, y, lowHigh[0]);
+				middle.putPixel((x + nx) / 2, y, lowHigh[1]);
 			}
+		}
 
 		// LL HL
 		// LH HH
-		for (int x = 0; x < nx; x++)
-			for (int y = 0; y + 1 < ny; y += 2) {
-				curr = middle.getPixel(x, y);
-				next = middle.getPixel(x, y + 1);
-				mean = (curr + next) / 2;
-				diff = (curr - next) / 2;
-				out.putPixel(x, y / 2, mean);
-				out.putPixel(x, y / 2 + ny / 2, diff);
+		for (int x = 0; x < nx; x++) {
+			for (int y = 0; y < ny - 1; y +=2) {
+				lowHigh = getLowHigh(middle, x, y, 0, 1);
+				out.putPixel(x, y / 2, lowHigh[0]);
+				out.putPixel(x, (y + ny) / 2, lowHigh[1]);
 			}
+		}
 
 		return out;
+	}
+
+	static final private double SQRT2 = Math.sqrt(2);
+
+	static private double[] getLowHigh(ImageAccess img, int x, int y, int dx, int dy) {
+		double first = img.getPixel(x, y);
+		double second = img.getPixel(x + dx, y + dy);
+
+		double low = (first + second) / 2 * SQRT2;
+		double high = (first - second) / 2 * SQRT2;
+
+		return new double[] { low, high };
 	}
 
 	public void showAbout() {
