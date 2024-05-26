@@ -372,7 +372,7 @@ public class ImageAccess {
 		}
 		double dx = x - (double)i;
 		double dy = y - (double)j;
-	    int di, dj;
+	    int di;
 		if(i >= nx-1)  
 			di = -1;
 		else 

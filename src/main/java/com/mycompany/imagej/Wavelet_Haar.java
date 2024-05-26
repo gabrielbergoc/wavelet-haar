@@ -8,11 +8,19 @@
 
 package com.mycompany.imagej;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+
 import ij.IJ;
 import ij.ImageJ;
 import ij.ImagePlus;
 import ij.gui.GenericDialog;
+import ij.io.OpenDialog;
+import ij.io.Opener;
+import ij.io.SaveDialog;
 import ij.plugin.filter.PlugInFilter;
+import ij.process.ImageConverter;
 import ij.process.ImageProcessor;
 import lib.ImageAccess;
 
@@ -23,46 +31,68 @@ import lib.ImageAccess;
  * @author Johannes Schindelin
  */
 public class Wavelet_Haar implements PlugInFilter {
-	protected ImagePlus image;
+    int k;                      // Number of nearest neighbors
+    int levels;                  // Wavelet decoposition levels
 
-	// plugin parameters
-	public int value;
-	public String name;
+    public int setup(String arg, ImagePlus imp) {
+        ImageConverter ic = new ImageConverter(imp);
+        ic.convertToGray8();
+        return DOES_ALL;
+    }
 
-	@Override
-	public int setup(String arg, ImagePlus imp) {
-		if (arg.equals("about")) {
-			showAbout();
-			return DONE;
-		}
+    public void run(ImageProcessor img) {
 
-		image = imp;
-		return DOES_8G | DOES_16 | DOES_32 | DOES_RGB;
-	}
+        GenericDialog gd = new GenericDialog("k-nearest neighbor search", IJ.getInstance());
+        gd.addNumericField("Number of nearest neighbors (K):", 1, 0);
+        gd.addNumericField("Wavelet decomposition level:", 1, 0);
+        gd.showDialog();
+        if (gd.wasCanceled())
+            return;
+        k = (int) gd.getNextNumber();
+        levels = (int) gd.getNextNumber();
 
-	@Override
-	public void run(ImageProcessor ip) {
-		if (showDialog()) {
-			ImageAccess out = waveletHaar(new ImageAccess(ip), value);
-			out.show("Result (Haar Wavelet Transform, " + value + " levels)");
-		}
-	}
+        SaveDialog sd = new SaveDialog("Open search folder...", "any file (required)", "");
+        if (sd.getFileName()==null) return;
+        String dir = sd.getDirectory();
 
-	private boolean showDialog() {
-		GenericDialog gd = new GenericDialog("Haar Wavelet");
+        search(dir);
+    }
 
-		gd.addNumericField("Levels", 1, 0);
+    public void search(String dir) {
+        IJ.log("");
+        IJ.log("Searching images");
+        if (!dir.endsWith(File.separator))
+            dir += File.separator;
+        String[] list = new File(dir).list();  /* lista de arquivos */
+        if (list==null) return;
 
-		gd.showDialog();
-		if (gd.wasCanceled())
-			return false;
+		// Matrix of feature vectors. Each feature vector is an n x 2 (n = number of bands, 2 = number of descriptors) array
+		double[][][] featVectors = new double[list.length][3 * levels + 1][2];
 
-		value = (int)gd.getNextNumber();
+        for (int i=0; i<list.length; i++) {
+            IJ.showStatus(i+"/"+list.length+": "+list[i]);   /* mostra na interface */
+            IJ.showProgress((double)i / list.length);  /* barra de progresso */
+            File f = new File(dir+list[i]);
+            if (!f.isDirectory()) {
+                ImagePlus image = new Opener().openImage(dir, list[i]); /* abre imagem image */
+                if (image != null) {
+					image.show();
+                    ImageAccess input = new ImageAccess(image.getProcessor());
+					ImageAccess output = waveletHaar(input, levels);
+					output.show("Result (Haar Wavelet Transform, " + levels + " levels)");
 
-		return true;
-	}
+					appendFeatVector(input, levels, featVectors[i]);
+                }
+            }
+        }
 
-	static public ImageAccess waveletHaar(ImageAccess input, int max) {
+		writeFeatVectors(featVectors);
+
+        IJ.showProgress(1.0);
+        IJ.showStatus("");      
+     }    
+
+	static public ImageAccess waveletHaar(ImageAccess input, int levels) {
 		int nx = input.getWidth();
 		int ny = input.getHeight();
 		double[] lowHigh;
@@ -71,12 +101,12 @@ public class Wavelet_Haar implements PlugInFilter {
 		ImageAccess out = input.duplicate();
 		ImageAccess temp;
 
-		for (int i = 0; i < max; i++) {
+		for (int i = 0; i < levels; i++) {
 			int div = 1 << i;
 
 			// vertical split
 			for (int y = 0; y < (ny / div); y++) {
-			for (int x = 0; x < (nx / div); x += 2) {
+				for (int x = 0; x < (nx / div); x += 2) {
 					lowHigh = getLowHigh(out, x, y, 1, 0);
 					aux1.putPixel(x / 2, y, lowHigh[0]);
 					aux1.putPixel(x / 2 + nx / (div << 1), y, lowHigh[1]);
@@ -123,9 +153,95 @@ public class Wavelet_Haar implements PlugInFilter {
 		return new double[] { low, high };
 	}
 
-	public void showAbout() {
-		IJ.showMessage("WaveletHaar",
-				"a plugin to compute the Haar Wavelet descriptors of an image");
+	static private double[][] appendFeatVector(ImageAccess input, int levels, double[][] featVector) {
+		int nx = input.getWidth();
+		int ny = input.getHeight();
+
+		for (int y = 0; y < ny; y++)
+		for (int x = 0; x < nx; x++) {
+			int band = getBandNumber(x, y, nx, ny, levels);
+			double P = input.getPixel(x, y);
+
+			// energy
+			featVector[band][0] += Math.pow(P, 2);
+
+			// entropy
+			if (P != 0) { // avoid ln 0
+				featVector[band][1] -= P * Math.log(P);
+			}
+		}
+
+		return featVector;
+	}
+
+	/**
+	 * Gets the band number based on the coordinates of a pixel and the number of decomposition level, labeled in read-order, for each level of decomposition.
+	 * Band labels example for an image with 3 levels of decomposition:
+	 * -------------------------
+	 * |0 |1 |  4  |           |
+	 * |2 |3 |     |           |
+	 * ------------|     7     |
+	 * |  5  |  6  |           |
+	 * |     |     |           |
+	 * -------------------------
+	 * |		   |		   |
+	 * |		   |		   |
+	 * |	 8	   |	 9	   |
+	 * |		   |		   |
+	 * |		   |		   |
+	 * -------------------------
+	 */
+	static private int getBandNumber(int x, int y, int nx, int ny, int levels) {
+		int localBand = 0;
+		for (int level = 0; level < levels; level++) {
+			int divX = nx / 2;
+			int divY = ny / 2;
+
+			if (x < divX && y < divY) {
+				localBand = 0; // LL band
+			} else if (x >= divX && y < divY) {
+				localBand = 1; // LH band
+				x -= divX;
+			} else if (x < divX && y >= divY) {
+				localBand = 2; // HL band
+				y -= divY;
+			} else {
+				localBand = 3; // HH band
+				x -= divX;
+				y -= divY;
+			}
+
+			// half the size
+			nx = divX;
+			ny = divY;
+
+			// if the pixel is not in the LL band, we do not decompose further
+			if (localBand != 0) {
+				return (levels - (level + 1)) * 3 + localBand;
+			}
+		}
+
+		return localBand;
+	}
+
+	static private void writeFeatVectors(double[][][] featVectors) {
+		try {
+			FileWriter myWriter = new FileWriter("results/feat_vectors.txt");
+			String s = "";
+			for (double[][] featVector : featVectors) {
+				for (double[] energy_entropy : featVector) {
+					double energy = energy_entropy[0];
+					double entropy = energy_entropy[1];
+					s += "(" + String.format("%.0f", energy) + "," + String.format("%.0f", entropy) + ")" + ", ";
+				}
+				s += "\n";
+			}
+			myWriter.write(s);
+			myWriter.close();
+		} catch (IOException e) {
+			System.out.println("An error occurred.");
+			e.printStackTrace();
+		}
 	}
 
 	/**
@@ -147,8 +263,10 @@ public class Wavelet_Haar implements PlugInFilter {
 		// start ImageJ
 		new ImageJ();
 
-		// open the Clown sample
-		ImagePlus image = IJ.openImage("http://imagej.net/images/clown.jpg");
+		// open the sample
+		OpenDialog sd = new OpenDialog("Open image...");
+		if (sd.getFileName()==null) return;
+		ImagePlus image = IJ.openImage(sd.getPath());
 		image.show();
 
 		// run the plugin
