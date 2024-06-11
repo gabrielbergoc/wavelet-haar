@@ -76,12 +76,12 @@ public class Wavelet_Haar implements PlugInFilter {
             if (!f.isDirectory()) {
                 ImagePlus image = new Opener().openImage(dir, list[i]); /* abre imagem image */
                 if (image != null) {
-					image.show();
+					// image.show();
                     ImageAccess input = new ImageAccess(image.getProcessor());
 					ImageAccess output = waveletHaar(input, levels);
-					output.show("Result (Haar Wavelet Transform, " + levels + " levels)");
+					// output.show("Result (Haar Wavelet Transform, " + levels + " levels)");
 
-					appendFeatVector(input, levels, featVectors[i]);
+					appendFeatVector(output, levels, featVectors[i]);
                 }
             }
         }
@@ -161,14 +161,13 @@ public class Wavelet_Haar implements PlugInFilter {
 		for (int x = 0; x < nx; x++) {
 			int band = getBandNumber(x, y, nx, ny, levels);
 			double P = input.getPixel(x, y);
+			P += 128; // change to normalize with max and min
 
 			// energy
 			featVector[band][0] += Math.pow(P, 2);
 
 			// entropy
-			if (P != 0) { // avoid ln 0
-				featVector[band][1] -= P * Math.log(P);
-			}
+			featVector[band][1] -= P * Math.log(P);
 		}
 
 		return featVector;
