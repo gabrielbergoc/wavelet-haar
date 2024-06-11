@@ -73,15 +73,17 @@ public class Wavelet_Haar implements PlugInFilter {
             IJ.showStatus(i+"/"+list.length+": "+list[i]);   /* mostra na interface */
             IJ.showProgress((double)i / list.length);  /* barra de progresso */
             File f = new File(dir+list[i]);
+
             if (!f.isDirectory()) {
                 ImagePlus image = new Opener().openImage(dir, list[i]); /* abre imagem image */
+
                 if (image != null) {
 					// image.show();
                     ImageAccess input = new ImageAccess(image.getProcessor());
 					ImageAccess output = waveletHaar(input, levels);
 					// output.show("Result (Haar Wavelet Transform, " + levels + " levels)");
 
-					appendFeatVector(output, levels, featVectors[i]);
+					appendFeatVector(normalize(output), levels, featVectors[i]);
                 }
             }
         }
@@ -153,6 +155,26 @@ public class Wavelet_Haar implements PlugInFilter {
 		return new double[] { low, high };
 	}
 
+	static private ImageAccess normalize(ImageAccess image) {
+		return normalize(image, 0, 255);
+	}
+
+	static private ImageAccess normalize(ImageAccess image, double newMin, double newMax) {
+		double min = image.getMinimum();
+		double max = image.getMaximum();
+		double div = max - min;
+		double fac = newMax - newMin;
+		double[][] pixels = image.getArrayPixels();
+
+		for (int i = 0; i < pixels.length; i++) {
+			for (int j = 0; j < pixels[i].length; j++) {
+				pixels[i][j] = (pixels[i][j] - min) / div * fac + newMin;
+			}
+		}
+
+		return new ImageAccess(pixels);
+	}
+
 	static private double[][] appendFeatVector(ImageAccess input, int levels, double[][] featVector) {
 		int nx = input.getWidth();
 		int ny = input.getHeight();
@@ -161,13 +183,12 @@ public class Wavelet_Haar implements PlugInFilter {
 		for (int x = 0; x < nx; x++) {
 			int band = getBandNumber(x, y, nx, ny, levels);
 			double P = input.getPixel(x, y);
-			P += 128; // change to normalize with max and min
 
 			// energy
 			featVector[band][0] += Math.pow(P, 2);
 
 			// entropy
-			featVector[band][1] -= P * Math.log(P);
+			featVector[band][1] -= P > 0 ? P * Math.log(P) : 0;
 		}
 
 		return featVector;
