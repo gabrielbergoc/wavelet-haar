@@ -11,6 +11,8 @@ package com.mycompany.imagej;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedMap;
@@ -126,6 +128,15 @@ public class Wavelet_Haar implements PlugInFilter {
         ImageAccess input = new ImageAccess(image.getProcessor());
         ImageAccess output = waveletHaar(input, levels);
         Descriptor referenceImageDescriptor = new Descriptor(referenceImagePath, calculateFeatureVector(normalize(output), levels));
+
+        try {
+            Files.createDirectories(Paths.get("results"));
+        } catch (IOException e) {
+            IJ.log(e.getMessage());
+            e.printStackTrace();
+        }
+        IJ.log("Saving results to " + Paths.get("results").toAbsolutePath());
+
         writeDescriptor(0, referenceImageDescriptor, false, distanceCalculator.getName());
 
         // Calculate distances to reference descriptor and sort by distance
