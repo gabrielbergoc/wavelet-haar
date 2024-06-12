@@ -11,6 +11,7 @@ package com.mycompany.imagej;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -37,6 +38,15 @@ public class Wavelet_Haar implements PlugInFilter {
     int k;                      // Number of nearest neighbors
     int levels;                  // Wavelet decoposition levels
     String referenceImagePath;
+    DistanceCalculator distanceCalculator;
+
+    private Map<String, DistanceCalculator> distanceCalculators = new HashMap<>(3);
+
+    public Wavelet_Haar() {
+        distanceCalculators.put("L1 (Manhattan)", new L1Calculator());
+        distanceCalculators.put("L2 (Euclidean)", new L2Calculator());
+        distanceCalculators.put("L-inf (Chebyshev)", new LInfinityCalculator());
+    }
 
     public int setup(String arg, ImagePlus imp) {
         referenceImagePath = imp.getOriginalFileInfo().getFilePath();
@@ -50,11 +60,13 @@ public class Wavelet_Haar implements PlugInFilter {
         GenericDialog gd = new GenericDialog("k-nearest neighbor search", IJ.getInstance());
         gd.addNumericField("Number of nearest neighbors (K):", 1, 0);
         gd.addNumericField("Wavelet decomposition level:", 1, 0);
+        gd.addChoice("Distance function", new String[] { "L1 (Manhattan)", "L2 (Euclidean)", "L-inf (Chebyshev)"}, "L2 (Euclidean)");
         gd.showDialog();
         if (gd.wasCanceled())
             return;
         k = (int) gd.getNextNumber();
         levels = (int) gd.getNextNumber();
+        distanceCalculator = distanceCalculators.get(gd.getNextChoice());
 
         SaveDialog sd = new SaveDialog("Open search folder...", "any file (required)", "");
         if (sd.getFileName()==null) return;
@@ -114,19 +126,19 @@ public class Wavelet_Haar implements PlugInFilter {
         ImageAccess input = new ImageAccess(image.getProcessor());
         ImageAccess output = waveletHaar(input, levels);
         Descriptor referenceImageDescriptor = new Descriptor(referenceImagePath, calculateFeatureVector(normalize(output), levels));
-        writeDescriptor(0, referenceImageDescriptor, false);
+        writeDescriptor(0, referenceImageDescriptor, false, distanceCalculator.getName());
 
         // Calculate distances to reference descriptor and sort by distance
         SortedMap<Double, Descriptor> map = new TreeMap<>();
         for (Descriptor descriptor : descriptors) {
-            double distance = referenceImageDescriptor.distanceTo(descriptor);
+            double distance = distanceCalculator.calculateDistance(referenceImageDescriptor, descriptor);
             map.put(distance, descriptor);
         }
 
         // get only k-nearest neighbors
         int i = 0;
         for (Map.Entry<Double, Descriptor> entry : map.entrySet()) {
-            writeDescriptor(entry.getKey(), entry.getValue(), true);
+            writeDescriptor(entry.getKey(), entry.getValue(), true, distanceCalculator.getName());
             showImage(dir, entry.getValue());
 
             if (++i == k) break;
@@ -323,11 +335,15 @@ public class Wavelet_Haar implements PlugInFilter {
      * @param descriptor Descriptor object of this image
      * @param append whether to append to end of file or not
      */
-    static private void writeDescriptor(double distance, Descriptor descriptor, boolean append) {
+    static private void writeDescriptor(double distance, Descriptor descriptor, boolean append, String distanceFunction) {
         try {
             FileWriter writer = new FileWriter("results/knn.txt", append);
             StringBuilder s = new StringBuilder();
             double[] featureVector = descriptor.getFeatureVector();
+
+            if (!append) {
+                s.append("Distance function: " + distanceFunction + "\n");
+            }
 
             s.append("Image: " + descriptor.getId() + ", distance: " + distance + ", features vector: (");
 
@@ -423,21 +439,67 @@ public class Wavelet_Haar implements PlugInFilter {
         public double[] getFeatureVector() {
             return _featureVector.clone();
         }
+    }
 
-        /**
-         * Calculates the L2 distance of this image to another, based on their featureVectors.
-         * 
-         * @param other other image's Descriptor object
-         * @return the distance
-         */
-        public double distanceTo(Descriptor other) {
+    private interface DistanceCalculator {
+        public double calculateDistance(Descriptor a, Descriptor b);
+        public String getName();
+    }
+
+    private class L1Calculator implements DistanceCalculator {
+
+        @Override
+        public double calculateDistance(Descriptor a, Descriptor b) {
             double sum = 0;
 
-            for (int i = 0; i < _featureVector.length; i++) {
-                sum += Math.pow(_featureVector[i] - other._featureVector[i], 2);
+            for (int i = 0; i < a._featureVector.length; i++) {
+                sum += Math.abs(a._featureVector[i] - b._featureVector[i]);
+            }
+
+            return sum;
+        }
+
+        @Override
+        public String getName() {
+            return "L1 (Manhattan)";
+        }
+    }
+
+    private class L2Calculator implements DistanceCalculator {
+
+        @Override
+        public double calculateDistance(Descriptor a, Descriptor b) {
+            double sum = 0;
+
+            for (int i = 0; i < a._featureVector.length; i++) {
+                sum += Math.pow(a._featureVector[i] - b._featureVector[i], 2);
             }
 
             return Math.sqrt(sum);
+        }
+
+        @Override
+        public String getName() {
+            return "L2 (Euclidean)";
+        }
+    }
+
+    private class LInfinityCalculator implements DistanceCalculator {
+
+        @Override
+        public double calculateDistance(Descriptor a, Descriptor b) {
+            double max = 0;
+
+            for (int i = 0; i < a._featureVector.length; i++) {
+                max = Math.max(max, Math.abs(a._featureVector[i] - b._featureVector[i]));
+            }
+
+            return max;
+        }
+
+        @Override
+        public String getName() {
+            return "L-inf (Chebyshev)";
         }
     }
 }
