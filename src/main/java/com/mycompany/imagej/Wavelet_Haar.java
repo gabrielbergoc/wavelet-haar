@@ -51,14 +51,10 @@ public class Wavelet_Haar implements PlugInFilter {
     }
 
     public int setup(String arg, ImagePlus imp) {
-        referenceImagePath = imp.getOriginalFileInfo().getFilePath();
-        ImageConverter ic = new ImageConverter(imp);
-        ic.convertToGray8();
         return DOES_ALL;
     }
 
     public void run(ImageProcessor img) {
-
         GenericDialog gd = new GenericDialog("k-nearest neighbor search", IJ.getInstance());
         gd.addNumericField("Number of nearest neighbors (K):", 1, 0);
         gd.addNumericField("Wavelet decomposition level:", 1, 0);
@@ -73,8 +69,15 @@ public class Wavelet_Haar implements PlugInFilter {
         SaveDialog sd = new SaveDialog("Open search folder...", "any file (required)", "");
         if (sd.getFileName()==null) return;
         String dir = sd.getDirectory();
-
-        search(dir);
+        String[] list = new File(dir).list();  /* lista de arquivos */
+        if (list==null) return;
+        for (int i=0; i<list.length; i++) {
+            ImagePlus imp = new Opener().openImage(dir, list[i]);
+            referenceImagePath = imp.getOriginalFileInfo().getFilePath();
+            ImageConverter ic = new ImageConverter(imp);
+            ic.convertToGray8();
+            search(dir);
+        }
     }
 
     public void search(String dir) {
@@ -137,7 +140,7 @@ public class Wavelet_Haar implements PlugInFilter {
         }
         IJ.log("Saving results to " + Paths.get("results").toAbsolutePath());
 
-        writeDescriptor(0, referenceImageDescriptor, false, distanceCalculator.getName());
+        writeDescriptor(0, referenceImageDescriptor, true, distanceCalculator.getName());
 
         // Calculate distances to reference descriptor and sort by distance
         SortedMap<Double, Descriptor> map = new TreeMap<>();
